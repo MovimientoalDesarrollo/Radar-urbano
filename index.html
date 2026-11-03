@@ -45,6 +45,11 @@ button,input,select,textarea{font:inherit;color:inherit}
 .brand p{margin:8px 0 0;color:var(--muted);max-width:62ch}
 .head-actions{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end}
 .pubnote{font-size:12.5px;color:var(--muted);align-self:center}
+.home-link{color:inherit;text-decoration:none;cursor:pointer;transition:color .15s}
+.home-link:hover{color:var(--accent)}
+.side-sub{margin:-4px 0 0;font-size:13px;color:var(--muted);overflow-wrap:anywhere}
+.side-sub[hidden]{display:none}
+.side{scroll-margin-top:12px}
 .tab[hidden],.field-inline[hidden],.pubnote[hidden]{display:none}
 .btn{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);background:var(--paper);border-radius:6px;padding:9px 14px;font-weight:600;cursor:pointer}
 .btn:hover{border-color:var(--ink)}
@@ -236,7 +241,7 @@ form{display:flex;flex-direction:column;gap:14px}
 <div class="wrap">
   <header class="head">
     <div class="brand">
-      <h1>Radar Urbano</h1>
+      <h1><a href="#mapa" id="home-link" class="home-link" title="Volver al inicio">Radar Urbano</a></h1>
       <p>Una herramienta para conocer lo que sucede en las ciudades en términos de desarrollo, innovación y políticas públicas.</p>
     </div>
     <div class="head-actions">
@@ -249,7 +254,7 @@ form{display:flex;flex-direction:column;gap:14px}
     <div class="fbar">
       <div class="chips" id="eje-chips"></div>
       <div class="fbar-right">
-        <input id="f-q" type="search" placeholder="Buscar ciudad o tema" aria-label="Buscar">
+        <input id="f-q" type="search" placeholder="Buscar ciudad o tema y Enter" aria-label="Buscar (Enter para ver resultados)" enterkeyhint="search">
         <button class="btn small ghost" id="btn-more" type="button" aria-expanded="false" aria-controls="more-filters">Más filtros</button>
       </div>
     </div>
@@ -285,7 +290,8 @@ form{display:flex;flex-direction:column;gap:14px}
         </div>
       </div>
       <aside class="side">
-        <div class="side-head"><h2 id="side-title">Todas las noticias</h2><button class="btn small ghost" id="btn-allcities" type="button" hidden>Ver todas</button></div>
+        <div class="side-head"><h2 id="side-title">Últimas noticias</h2><button class="btn small ghost" id="btn-allcities" type="button" hidden>Ver todas</button></div>
+        <p class="side-sub" id="side-sub" hidden></p>
         <div class="list" id="side-list"></div>
         <div class="global" id="global-box" hidden><div class="label">Agenda global (sin ciudad)</div><div class="global" id="global-list"></div></div>
       </aside>
@@ -494,11 +500,13 @@ function renderMapa(list){
   }
   const enCiudad = state.ciudad ? list.filter(i=>cityKey(i)===state.ciudad) : null;
   if(state.ciudad && !enCiudad.length) state.ciudad=null;
-  const side = state.ciudad ? enCiudad : list.filter(i=>i.alcance!=="global");
-  $("#side-title").textContent = state.ciudad ? `${enCiudad[0].ciudad}` : "Todas las noticias";
-  $("#btn-allcities").hidden = !state.ciudad;
+  const activos = filtrosActivos();
+  const side = state.ciudad ? enCiudad : (activos.length ? list : list.filter(i=>i.alcance!=="global"));
+  $("#side-title").textContent = state.ciudad ? `${enCiudad[0].ciudad}` : activos.length ? `Resultados (${side.length})` : "Últimas noticias";
+  const sub=$("#side-sub"); sub.hidden = !activos.length || !!state.ciudad; sub.textContent = activos.join(" · ");
+  const b=$("#btn-allcities"); b.hidden = !state.ciudad && !activos.length; b.textContent = state.ciudad ? "Ver todas" : "Limpiar búsqueda";
   $("#side-list").innerHTML = side.length ? side.map(card).join("") : emptyBlock();
-  const glob = state.ciudad ? [] : list.filter(i=>i.alcance==="global");
+  const glob = (state.ciudad || activos.length) ? [] : list.filter(i=>i.alcance==="global");
   $("#global-box").hidden = !glob.length;
   $("#global-list").innerHTML = glob.map(card).join("");
 }
@@ -692,6 +700,37 @@ async function save(ev){
 let toastT;
 function toast(msg){ const t=$("#toast"); t.textContent=msg; t.hidden=false; clearTimeout(toastT); toastT=setTimeout(()=>t.hidden=true,2600); }
 
+/* ---------- búsqueda e inicio ---------- */
+const PERIODOS = {"3":"Últimos 3 meses","6":"Últimos 6 meses","12":"Últimos 12 meses"};
+function filtrosActivos(){
+  const a=[];
+  if(state.q) a.push(`«${state.q}»`);
+  if(state.ejes.size<EJES.length) a.push(EJES.filter(e=>state.ejes.has(e.id)).map(e=>e.nombre).join(", "));
+  if(state.sub) a.push(state.sub);
+  if(state.actor) a.push(ACTORES[state.actor]||state.actor);
+  if(state.etapa) a.push(ETAPAS[state.etapa]||state.etapa);
+  if(state.region) a.push(state.region);
+  if(state.periodo!=="todo") a.push(PERIODOS[state.periodo]||"");
+  if(state.rev) a.push(state.rev==="si"?"Para revisar":"Revisadas");
+  return a.filter(Boolean);
+}
+function resetFiltros(){
+  state.ejes=new Set(EJES.map(e=>e.id)); state.region=state.etapa=state.q=state.rev=state.sub=state.actor=""; state.periodo="todo"; state.ciudad=null;
+  ["#f-rev","#f-sub","#f-actor","#f-region","#f-etapa","#f-q"].forEach(s=>{ const el=$(s); if(el) el.value=""; }); $("#f-periodo").value="todo";
+}
+function mostrarResultados(){
+  if(state.vista!=="mapa"){ location.hash="mapa"; } else { render(); }
+  if(window.matchMedia("(max-width:900px)").matches) setTimeout(()=>{ try{ $(".side").scrollIntoView({behavior:"smooth",block:"start"}); }catch(e){} },60);
+}
+function irAlInicio(){
+  resetFiltros();
+  const m=$("#more-filters"); m.hidden=true; $("#btn-more").setAttribute("aria-expanded","false");
+  document.querySelectorAll(".overlay").forEach(o=>o.hidden=true);
+  if(window.d3 && zoom) d3.select("#map").call(zoom.transform,d3.zoomIdentity);
+  if(location.hash && location.hash!=="#mapa") location.hash="mapa"; else { state.vista="mapa"; render(); }
+  window.scrollTo({top:0,behavior:"smooth"});
+}
+
 /* ---------- controles ---------- */
 function initControls(){
   $("#eje-chips").innerHTML = EJES.map(e=>`<button type="button" class="chip" data-eje="${e.id}" aria-pressed="true"><i class="dot" style="background:${ejeColor(e.id)}"></i>${esc(e.nombre)}</button>`).join("");
@@ -716,13 +755,16 @@ function initControls(){
     const y=ev.target.closest("[data-fyes]"); if(y){ try{ await state.db.collection("fuentes").doc(y.dataset.fyes).delete(); toast("Fuente quitada"); }catch(e){ toast("No se pudo quitar."); } }
   });
   $("#f-periodo").onchange=e=>{state.periodo=e.target.value; render();};
-  $("#f-q").oninput=e=>{state.q=e.target.value; render();};
+  const buscar=()=>{ state.q=$("#f-q").value.trim(); state.ciudad=null; mostrarResultados(); };
+  $("#f-q").addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); buscar(); } });
+  $("#f-q").addEventListener("input",e=>{ if(!e.target.value && state.q){ state.q=""; render(); } });
+  $("#more-filters").addEventListener("keydown",e=>{ if(e.key==="Enter" && e.target.matches("select")){ e.preventDefault(); mostrarResultados(); } });
   $("#btn-more").onclick=()=>{ const m=$("#more-filters"), open=m.hidden; m.hidden=!open; $("#btn-more").setAttribute("aria-expanded",open); };
-  $("#btn-reset").onclick=()=>{ state.ejes=new Set(EJES.map(e=>e.id)); state.region=state.etapa=state.q=""; state.periodo="todo"; state.ciudad=null;
-    state.rev=""; state.sub=""; state.actor=""; $("#f-rev").value=""; $("#f-sub").value=""; $("#f-actor").value=""; $("#f-region").value=""; $("#f-etapa").value=""; $("#f-periodo").value="todo"; $("#f-q").value=""; render(); };
+  $("#btn-reset").onclick=()=>{ resetFiltros(); render(); };
   $("#tabs").onclick=ev=>{ const t=ev.target.closest(".tab"); if(!t) return; location.hash=t.dataset.v; };
   window.addEventListener("hashchange",fromHash);
-  $("#btn-allcities").onclick=()=>{state.ciudad=null; render();};
+  $("#btn-allcities").onclick=()=>{ if(state.ciudad){ state.ciudad=null; } else { resetFiltros(); } render(); };
+  $("#home-link").onclick=e=>{ e.preventDefault(); irAlInicio(); };
   document.addEventListener("click",ev=>{
     const c=ev.target.closest(".card"); if(c){ openDetail(c.dataset.id); return; }
     const tr=ev.target.closest("tbody tr[data-city]"); if(tr){ state.ciudad=tr.dataset.city; location.hash="mapa"; return; }
